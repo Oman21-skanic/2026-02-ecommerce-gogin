@@ -1,0 +1,273 @@
+---
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { backendRequest } from "../../lib/api/backend";
+import { readSession } from "../../lib/auth/session";
+import type { Order, Product } from "../../lib/types";
+
+export const prerender = false;
+
+const session = readSession(Astro.cookies);
+const isAdmin = session?.role === "admin";
+
+const ordersResult = isAdmin
+  ? await backendRequest<Order[]>("/api/v1/admin/orders", { token: session.token })
+  : { data: [], error: null, status: 401 };
+
+const productsResult = isAdmin
+  ? await backendRequest<Product[]>("/api/v1/admin/products", { token: session.token })
+  : { data: [], error: null, status: 401 };
+
+const orders = ordersResult.data || [];
+const products = productsResult.data || [];
+
+const toLocalDay = (date: Date) => date.toLocaleDateString("id-ID", { weekday: "short" });
+const normalizeStatus = (status: string) => status?.toLowerCase() || "";
+const isPaid = (status: string) => ["paid", "done", "completed"].includes(normalizeStatus(status));
+
+const today = new Date();
+const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+
+const revenueToday = orders
+  .filter((order) => isPaid(order.status))
+  .filter((order) => new Date(order.created_at) >= startOfToday)
+  .reduce((acc, order) => acc + order.amount_cents, 0);
+
+const revenueYesterday = orders
+  .filter((order) => isPaid(order.status))
+  .filter((order) => {
+    const created = new Date(order.created_at);
+    return created >= startOfYesterday && created < startOfToday;
+  })
+  .reduce((acc, order) => acc + order.amount_cents, 0);
+
+const revenueDiff = revenueYesterday > 0
+  ? Math.round(((revenueToday - revenueYesterday) / revenueYesterday) * 100)
+  : 0;
+
+const activeOrders = orders.filter((order) => {
+  const status = normalizeStatus(order.status);
+  return status !== "failed" && status !== "done" && status !== "completed";
+});
+
+const pendingOrders = activeOrders.filter((order) => normalizeStatus(order.status) === "pending");
+const lowStock = products.filter((product) => product.stock <= 5);
+
+const avgRatingSource = products.filter((product) => (product.rating || 0) > 0);
+const avgRating = avgRatingSource.length > 0
+  ? avgRatingSource.reduce((acc, product) => acc + (product.rating || 0), 0) / avgRatingSource.length
+  : 0;
+const reviewCount = products.reduce((acc, product) => acc + (product.review_count || 0), 0);
+
+const kpis = [
+  {
+    label: "Revenue Hari Ini",
+    value: `Rp ${(revenueToday / 100).toLocaleString("id-ID")}`,
+    note: revenueYesterday ? `${revenueDiff > 0 ? "+" : ""}${revenueDiff}% vs kemarin` : "Belum ada data kemarin",
+  },
+  {
+    label: "Order Aktif",
+    value: String(activeOrders.length),
+    note: `${pendingOrders.length} pending`,
+  },
+  {
+    label: "Produk Habis",
+    value: String(lowStock.length),
+    note: "Butuh restock",
+  },
+  {
+    label: "Rating Rata-rata",
+    value: avgRating ? avgRating.toFixed(1) : "-",
+    note: `${reviewCount} ulasan`,
+  },
+];
+
+const quickActions = [
+  { title: "Tambah Produk", desc: "Buat produk baru + preview", href: "/admin/products/new" },
+  { title: "Update Stock", desc: "Cek stok kritis", href: "/admin/products" },
+  { title: "Kelola Pesanan", desc: "Pantau status order", href: "/admin/orders" },
+];
+
+const revenueDays = Array.from({ length: 7 }, (_, index) => {
+  const date = new Date(startOfToday.getTime() - (6 - index) * 24 * 60 * 60 * 1000);
+  return {
+    label: toLocalDay(date),
+    date,
+  };
+});
+
+const revenueByDay = revenueDays.map(({ label, date }) => {
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  const total = orders
+    .filter((order) => isPaid(order.status))
+    .filter((order) => {
+      const created = new Date(order.created_at);
+      return created >= dayStart && created < dayEnd;
+    })
+    .reduce((acc, order) => acc + order.amount_cents, 0);
+  return { label, total };
+});
+
+const maxRevenue = Math.max(...revenueByDay.map((day) => day.total), 1);
+const revenueBars = revenueByDay.map((day) => ({
+  label: day.label,
+  value: Math.round((day.total / maxRevenue) * 100),
+}));
+
+const categoryCounts = products.reduce<Record<string, number>>((acc, product) => {
+  const category = product.category || "Uncategorized";
+  acc[category] = (acc[category] || 0) + 1;
+  return acc;
+}, {});
+
+const totalProducts = Object.values(categoryCounts).reduce((acc, value) => acc + value, 0) || 1;
+const categoryMix = Object.entries(categoryCounts)
+  .map(([label, count]) => ({ label, value: Math.round((count / totalProducts) * 100) }))
+  .sort((a, b) => b.value - a.value)
+  .slice(0, 4);
+
+const donutSegments = categoryMix.reduce<{ from: number; to: number; color: string }[]>((acc, item, index) => {
+  const colors = ["#f4b76a", "#e1643f", "#7c6fff", "#3fa97b"];
+  const previousEnd = acc.length ? acc[acc.length - 1].to : 0;
+  acc.push({
+    from: previousEnd,
+    to: previousEnd + item.value,
+    color: colors[index % colors.length],
+  });
+  return acc;
+}, []);
+
+const donutStyle = donutSegments
+  .map((seg) => `${seg.color} ${seg.from}% ${seg.to}%`)
+  .join(", ");
+
+const activityFeed = orders
+  .slice()
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  .slice(0, 5)
+  .map((order) => ({
+    time: new Date(order.created_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
+    text: `Order #${order.order_id || order.id} status ${normalizeStatus(order.status) || "pending"}`,
+  }));
+---
+
+<AdminLayout title="Admin Dashboard Mancafe" description="Kelola konten dan operasional" session={session}>
+  <section class="admin-dashboard">
+    <header class="admin-hero">
+      <div class="admin-hero-content">
+        <p class="admin-hero-kicker">Ops Center</p>
+        <h1 class="admin-hero-title">Dashboard Admin yang Fokus ke Aksi</h1>
+        <p class="admin-hero-subtitle">
+          Pantau performa harian, gerak cepat untuk stok kritis, dan kontrol campaign yang lagi berjalan.
+        </p>
+        <div class="admin-hero-actions">
+          <a class="btn btn-primary" href="/admin/products/new">Tambah Produk</a>
+          <a class="btn btn-ghost" href="/admin/orders">Review Pesanan</a>
+          <a class="btn btn-ghost" href="/admin/products">Audit Stock</a>
+        </div>
+      </div>
+      <div class="admin-hero-glow">
+        <div class="admin-hero-badge">
+          <p>Live</p>
+          <span>{new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WIB</span>
+        </div>
+        <div class="admin-hero-meter">
+          <p>Revenue target</p>
+          <strong>74%</strong>
+          <div class="admin-meter-bar">
+            <span style="width: 74%;"></span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="admin-kpi-grid">
+      {kpis.map((kpi) => (
+        <article class="admin-kpi-card">
+          <p class="admin-kpi-label">{kpi.label}</p>
+          <h3>{kpi.value}</h3>
+          <span>{kpi.note}</span>
+        </article>
+      ))}
+    </section>
+
+    <section class="admin-panels">
+      <article class="admin-panel admin-panel-wide">
+        <div class="admin-panel-head">
+          <div>
+            <h2>Trend Revenue 7 Hari</h2>
+            <p>Snapshot cepat untuk evaluasi promo dan jam ramai.</p>
+          </div>
+          <div class="admin-panel-tags">
+            <span>Realtime</span>
+            <span>Auto refresh 30m</span>
+          </div>
+        </div>
+        <div class="admin-chart">
+          {revenueBars.map((bar) => (
+            <div class="admin-chart-bar" style={`--bar:${bar.value}%;`}>
+              <div class="admin-chart-fill"></div>
+              <span>{bar.label}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article class="admin-panel">
+        <div class="admin-panel-head">
+          <div>
+            <h2>Komposisi Kategori</h2>
+            <p>Produk aktif berdasarkan kategori.</p>
+          </div>
+        </div>
+        <div class="admin-donut-wrap">
+          <div class="admin-donut"></div>
+          <ul class="admin-donut-legend">
+            {categoryMix.map((item) => (
+              <li>
+                <span>{item.label}</span>
+                <strong>{item.value}%</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </article>
+
+      <article class="admin-panel">
+        <div class="admin-panel-head">
+          <div>
+            <h2>Quick Actions</h2>
+            <p>Shortcut untuk workflow paling sering.</p>
+          </div>
+        </div>
+        <div class="admin-quick-actions">
+          {quickActions.map((action) => (
+            <a class="admin-action-card" href={action.href}>
+              <h3>{action.title}</h3>
+              <p>{action.desc}</p>
+              <span>Go</span>
+            </a>
+          ))}
+        </div>
+      </article>
+
+      <article class="admin-panel admin-panel-wide">
+        <div class="admin-panel-head">
+          <div>
+            <h2>Activity Feed</h2>
+            <p>Aktivitas operasional terbaru.</p>
+          </div>
+        </div>
+        <div class="admin-activity">
+          {activityFeed.map((item) => (
+            <div class="admin-activity-item">
+              <span>{item.time}</span>
+              <p>{item.text}</p>
+            </div>
+          ))}
+        </div>
+      </article>
+    </section>
+  </section>
+</AdminLayout>

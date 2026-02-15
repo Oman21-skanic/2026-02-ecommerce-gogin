@@ -1,0 +1,250 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { backendRequest } from "../../lib/api/backend";
+import { readSession } from "../../lib/auth/session";
+import type { Product } from "../../lib/types";
+
+const session = readSession(Astro.cookies);
+
+const result = await backendRequest<Product[]>("/api/v1/products");
+const allProducts = result.data || [];
+
+const bestSellerIds = [...allProducts]
+	.sort((a, b) => (b.rating || 0) - (a.rating || 0))
+	.slice(0, 3)
+	.map((item) => item.id);
+
+const promoIds = [...allProducts]
+	.sort((a, b) => (a.price_cents || 0) - (b.price_cents || 0))
+	.slice(0, 3)
+	.map((item) => item.id);
+
+const categories = ["All", "Coffee", "Non Coffee", "Best Seller", "Promo"];
+---
+
+<Layout title="Manscoffe Products" description="Katalog produk Manscoffe" session={session}>
+	<section class="products-page">
+		<div class="section-shell">
+			<div class="products-header reveal">
+				<h1>Katalog Menu</h1>
+			</div>
+
+			<div class="products-controls reveal">
+				<div class="category-tabs">
+					{categories.map((cat, index) => (
+						<button 
+							class={`category-tab ${index === 0 ? 'active' : ''}`} 
+							data-category={cat}
+						>
+							{cat}
+						</button>
+					))}
+				</div>
+				<input 
+					id="searchInput" 
+					class="search-input" 
+					type="search" 
+					placeholder="Cari menu..." 
+					autocomplete="off"
+				/>
+			</div>
+
+			<div id="noResults" class="error-alert" style="display: none;">
+				Tidak ada produk ditemukan. Coba kata kunci lain.
+			</div>
+
+			{result.error && (
+				<div class="error-alert" style="display: block;">
+					{result.error}
+				</div>
+			)}
+
+			<div id="productsGrid" class="products-grid">
+				{allProducts.map((product, index) => {
+					const image = product.thumbnail || "/images/coffee-placeholder.svg";
+					const isBestSeller = bestSellerIds.includes(product.id);
+					const isPromo = promoIds.includes(product.id);
+					return (
+					<article 
+						class="product-card" 
+						data-product-id={product.id}
+						data-category={product.category}
+						data-name={product.name.toLowerCase()}
+						data-bestseller={isBestSeller ? "true" : "false"}
+						data-promo={isPromo ? "true" : "false"}
+						style={`transition-delay:${(index % 9) * 0.05}s;`}
+					>
+						<div class="product-image-wrapper">
+							<img src={image} alt={product.name} loading="lazy" />
+							<div class="product-badges">
+								{isBestSeller && <span class="badge badge-bestseller">Best Seller</span>}
+								{isPromo && <span class="badge badge-promo">Promo</span>}
+							</div>
+							<div class="product-stock-badge">{product.stock} left</div>
+						</div>
+						<div class="product-content">
+							<h2>{product.name}</h2>
+							<div class="product-price">Rp {(product.price_cents / 100).toLocaleString("id-ID")}</div>
+							<div class="product-actions">
+								<a class="btn btn-ghost" href={`/products/${product.id}`}>Detail</a>
+								<form method="POST" action="/api/cart/add">
+									<input type="hidden" name="product_id" value={product.id} />
+									<input type="hidden" name="quantity" value="1" />
+									<input type="hidden" name="redirect_to" value="/products" />
+									<button class="btn btn-primary" type="submit">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+											<circle cx="9" cy="21" r="1" />
+											<circle cx="20" cy="21" r="1" />
+											<path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+										</svg>
+										Keranjang
+									</button>
+								</form>
+							</div>
+						</div>
+					</article>
+				);
+				})}
+			</div>
+
+			<div id="pagination" class="pagination"></div>
+		</div>
+	</section>
+
+	<script>
+		const ITEMS_PER_PAGE = 9;
+		let currentPage = 1;
+		let currentCategory = "All";
+		let searchQuery = "";
+
+		const searchInput = document.getElementById("searchInput") as HTMLInputElement;
+		const productsGrid = document.getElementById("productsGrid") as HTMLElement;
+		const pagination = document.getElementById("pagination") as HTMLElement;
+		const noResults = document.getElementById("noResults") as HTMLElement;
+		const categoryTabs = document.querySelectorAll(".category-tab");
+		const allCards = Array.from(document.querySelectorAll(".product-card")) as HTMLElement[];
+
+		// Real-time search
+		searchInput?.addEventListener("input", (e) => {
+			searchQuery = (e.target as HTMLInputElement).value.toLowerCase().trim();
+			currentPage = 1;
+			filterAndDisplay();
+		});
+
+		// Category filter
+		categoryTabs.forEach((tab) => {
+			tab.addEventListener("click", () => {
+				categoryTabs.forEach((t) => t.classList.remove("active"));
+				tab.classList.add("active");
+				currentCategory = tab.getAttribute("data-category") || "All";
+				currentPage = 1;
+				filterAndDisplay();
+			});
+		});
+
+		function filterAndDisplay() {
+			// Filter products
+			const filtered = allCards.filter((card) => {
+				const category = card.getAttribute("data-category") || "";
+				const name = card.getAttribute("data-name") || "";
+				const isBestSeller = card.getAttribute("data-bestseller") === "true";
+				const isPromo = card.getAttribute("data-promo") === "true";
+
+				// Category filter logic
+				let matchCategory = false;
+				if (currentCategory === "All") {
+					matchCategory = true;
+				} else if (currentCategory === "Best Seller") {
+					matchCategory = isBestSeller;
+				} else if (currentCategory === "Promo") {
+					matchCategory = isPromo;
+				} else if (currentCategory === "Coffee") {
+					matchCategory = category !== "Non Coffee" && category !== "Dessert";
+				} else if (currentCategory === "Non Coffee") {
+					matchCategory = category === "Non Coffee" || category === "Dessert";
+				} else {
+					matchCategory = category === currentCategory;
+				}
+
+				const matchSearch = !searchQuery || name.includes(searchQuery);
+
+				return matchCategory && matchSearch;
+			});
+
+			// Show no results message
+			if (filtered.length === 0) {
+				noResults.style.display = "block";
+				productsGrid.style.display = "none";
+				pagination.innerHTML = "";
+				return;
+			} else {
+				noResults.style.display = "none";
+				productsGrid.style.display = "grid";
+			}
+
+			// Pagination
+			const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+			const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+			const endIndex = startIndex + ITEMS_PER_PAGE;
+
+			// Hide all cards first
+			allCards.forEach((card) => {
+				card.style.display = "none";
+			});
+
+			// Show only current page cards
+			filtered.slice(startIndex, endIndex).forEach((card) => {
+				card.style.display = "flex";
+			});
+
+			// Render pagination
+			renderPagination(totalPages);
+		}
+
+		function renderPagination(totalPages: number) {
+			if (totalPages <= 1) {
+				pagination.innerHTML = "";
+				return;
+			}
+
+			let html = "";
+
+			// Previous button
+			if (currentPage > 1) {
+				html += `<button class="page-btn" data-page="${currentPage - 1}">‹ Prev</button>`;
+			}
+
+			// Page numbers
+			for (let i = 1; i <= totalPages; i++) {
+				if (
+					i === 1 ||
+					i === totalPages ||
+					(i >= currentPage - 1 && i <= currentPage + 1)
+				) {
+					html += `<button class="page-btn ${i === currentPage ? "active" : ""}" data-page="${i}">${i}</button>`;
+				} else if (i === currentPage - 2 || i === currentPage + 2) {
+					html += `<span class="page-dots">...</span>`;
+				}
+			}
+
+			// Next button
+			if (currentPage < totalPages) {
+				html += `<button class="page-btn" data-page="${currentPage + 1}">Next ›</button>`;
+			}
+
+			pagination.innerHTML = html;
+
+			// Add click handlers
+			pagination.querySelectorAll(".page-btn").forEach((btn) => {
+				btn.addEventListener("click", () => {
+					currentPage = parseInt(btn.getAttribute("data-page") || "1");
+					filterAndDisplay();
+					window.scrollTo({ top: 0, behavior: "smooth" });
+				});
+			});
+		}
+
+		// Initial display
+		filterAndDisplay();
+	</script>
+</Layout>

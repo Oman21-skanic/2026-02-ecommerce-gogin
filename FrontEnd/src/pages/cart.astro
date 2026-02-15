@@ -1,0 +1,144 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { readSession } from "../lib/auth/session";
+import { backendRequest } from "../lib/api/backend";
+import type { Cart, Product } from "../lib/types";
+
+const session = readSession(Astro.cookies);
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+
+let cart: Cart | null = null;
+let cartError = "";
+let productMap: Record<string, Product> = {};
+
+if (session) {
+  const cartResult = await backendRequest<Cart>("/api/v1/me/cart", {
+    token: session.token,
+  });
+
+  if (cartResult.data) {
+    cart = cartResult.data;
+
+    if (cart.items.length > 0) {
+      const productsResult = await backendRequest<Product[]>("/api/v1/products");
+      if (productsResult.data) {
+        productMap = Object.fromEntries(
+          productsResult.data.map((product) => [product.id, product]),
+        );
+      } else {
+        cartError = productsResult.error || "Gagal memuat produk.";
+      }
+    }
+  } else {
+    cartError = cartResult.error || "Gagal memuat keranjang.";
+  }
+}
+
+const cartItems = cart?.items || [];
+const needsLogin = !session;
+
+const total = cartItems.reduce((acc, item) => {
+  const p = productMap[item.product_id];
+  if (!p) return acc;
+  return acc + item.quantity * p.price_cents;
+}, 0);
+---
+
+<Layout title="Keranjang Manscoffe" description="Kelola keranjang belanja Manscoffe" session={session}>
+	<section class="cart-page">
+		<div class="section-shell">
+			<div class="cart-header reveal">
+				<h1>Keranjang</h1>
+				<p>Review pesanan kamu sebelum checkout.</p>
+			</div>
+
+      {error && <p class="auth-alert auth-alert-error">{error}</p>}
+      {message && <p class="auth-alert auth-alert-success">{message}</p>}
+      {cartError && <p class="auth-alert auth-alert-error">{cartError}</p>}
+
+      {needsLogin ? (
+        <article class="cart-empty reveal">
+          <p>Login dulu untuk melihat keranjang.</p>
+          <a href="/auth/login?next=/cart" class="btn btn-primary">Login</a>
+        </article>
+      ) : cartItems.length === 0 ? (
+				<article class="cart-empty reveal">
+					<p>Keranjang masih kosong.</p>
+					<a href="/products" class="btn btn-primary">Belanja Sekarang</a>
+				</article>
+			) : (
+				<div class="cart-grid">
+					<div class="cart-list">
+						{cartItems.map((item, index) => {
+							const product = productMap[item.product_id];
+              if (!product) {
+                return (
+                  <article class="cart-card reveal" style={`transition-delay:${index * 0.04}s;`}>
+                    <div class="cart-thumb">
+                      <img src="/images/coffee-placeholder.svg" alt="Produk tidak tersedia" loading="lazy" />
+                    </div>
+                    <div class="cart-info">
+                      <h2>Produk tidak tersedia</h2>
+                      <p class="cart-meta">ID {item.product_id}</p>
+                      <div class="cart-price">Rp 0</div>
+                    </div>
+                    <div class="cart-qty">
+                      <span>Qty</span>
+                      <div class="cart-qty-box">{item.quantity}</div>
+                    </div>
+                    <div class="cart-subtotal">
+                      <p>Subtotal</p>
+                      <strong>Rp 0</strong>
+                      <form method="POST" action="/api/cart/remove">
+                        <input type="hidden" name="product_id" value={item.product_id} />
+                        <input type="hidden" name="quantity" value={item.quantity} />
+                        <button class="btn btn-ghost" type="submit">Hapus</button>
+                      </form>
+                    </div>
+                  </article>
+                );
+              }
+							return (
+								<article class="cart-card reveal" style={`transition-delay:${index * 0.04}s;`}>
+									<div class="cart-thumb">
+										<img src={product.thumbnail || "/images/coffee-placeholder.svg"} alt={product.name} loading="lazy" />
+									</div>
+									<div class="cart-info">
+										<h2>{product.name}</h2>
+										<p class="cart-meta">SKU {product.sku} · Stock {product.stock}</p>
+										<div class="cart-price">Rp {(product.price_cents / 100).toLocaleString("id-ID")}</div>
+									</div>
+									<div class="cart-qty">
+										<span>Qty</span>
+										<div class="cart-qty-box">{item.quantity}</div>
+									</div>
+									<div class="cart-subtotal">
+										<p>Subtotal</p>
+										<strong>Rp {((product.price_cents * item.quantity) / 100).toLocaleString("id-ID")}</strong>
+                    <form method="POST" action="/api/cart/remove">
+                      <input type="hidden" name="product_id" value={item.product_id} />
+                      <input type="hidden" name="quantity" value={item.quantity} />
+                      <button class="btn btn-ghost" type="submit">Hapus</button>
+                    </form>
+									</div>
+								</article>
+							);
+						})}
+					</div>
+
+					<aside class="cart-summary reveal">
+						<p class="summary-label">Ringkasan</p>
+						<div class="summary-row">
+							<span>Total</span>
+							<strong>Rp {(total / 100).toLocaleString("id-ID")}</strong>
+						</div>
+						<p class="summary-note">Termasuk pajak & biaya layanan.</p>
+						<a href="/checkout" class="btn btn-primary">Lanjut Checkout</a>
+						<a href="/products" class="btn btn-ghost">Tambah Menu</a>
+					</aside>
+				</div>
+			)}
+		</div>
+	</section>
+</Layout>

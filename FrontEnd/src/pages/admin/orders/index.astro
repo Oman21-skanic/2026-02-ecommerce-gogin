@@ -1,0 +1,97 @@
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { backendRequest } from "../../../lib/api/backend";
+import { readSession } from "../../../lib/auth/session";
+import type { Order, Product } from "../../../lib/types";
+
+export const prerender = false;
+
+const session = readSession(Astro.cookies);
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+
+const ordersResult = session
+  ? await backendRequest<Order[]>("/api/v1/admin/orders", { token: session.token })
+  : { data: null, error: "Unauthorized", status: 401 };
+
+const orders = ordersResult.data || [];
+
+const productsResult = orders.length > 0
+  ? await backendRequest<Product[]>("/api/v1/products", { token: session?.token })
+  : { data: [], error: null, status: 200 };
+
+const products = productsResult.data || [];
+const productMap: Record<string, Product> = Object.fromEntries(
+  products.map((product) => [product.id, product]),
+);
+
+const formatDate = (value: string) =>
+  new Date(value).toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const normalizeStatus = (status: string) => status?.toLowerCase() || "pending";
+---
+
+<AdminLayout title="Admin Pesanan Mancafe" description="Kelola pesanan pelanggan" session={session}>
+  <section class="space-y-6 admin-orders">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <h1 class="text-2xl font-bold">Admin Pesanan</h1>
+      <a class="btn btn-ghost" href="/admin">Dashboard</a>
+    </div>
+
+    {error && <p class="admin-alert admin-alert-error">{error}</p>}
+    {message && <p class="admin-alert admin-alert-success">{message}</p>}
+    {ordersResult.error && <p class="admin-alert admin-alert-error">{ordersResult.error}</p>}
+
+    {orders.length === 0 ? (
+      <article class="card p-5 admin-order-empty">Belum ada pesanan.</article>
+    ) : (
+      <div class="space-y-4">
+        {orders.map((order) => (
+          <article class="card p-5 space-y-4 admin-order-card">
+            <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 class="font-semibold">Order #{order.order_id || order.id}</h2>
+                <p class="text-sm admin-order-meta">User: {order.user_id || "-"}</p>
+                <p class="text-sm admin-order-meta">Tanggal: {formatDate(order.created_at)}</p>
+              </div>
+              <div class="text-right">
+                <p class="text-sm admin-order-meta">Total</p>
+                <p class="text-lg font-semibold admin-order-total">Rp {(order.amount_cents / 100).toLocaleString("id-ID")}</p>
+              </div>
+            </div>
+
+            <div>
+              <p class="text-sm admin-order-meta">Items</p>
+              <ul class="mt-1 space-y-1 text-sm admin-order-items">
+                {(order.items || []).map((item) => (
+                  <li>
+                    {productMap[item.product_id]?.name || "Produk"} x{item.quantity}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div class="text-sm admin-order-meta">Status sekarang: <strong class="admin-order-status">{order.status}</strong></div>
+              <form method="POST" action="/api/admin/orders/update" class="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="id" value={order.order_id || order.id} />
+                <select class="field admin-field" name="status">
+                  <option value="pending" selected={normalizeStatus(order.status) === "pending"}>pending</option>
+                  <option value="paid" selected={normalizeStatus(order.status) === "paid"}>paid</option>
+                  <option value="failed" selected={normalizeStatus(order.status) === "failed"}>failed</option>
+                  <option value="done" selected={normalizeStatus(order.status) === "done"}>done</option>
+                </select>
+                <button class="btn btn-primary" type="submit">Update Status</button>
+              </form>
+            </div>
+          </article>
+        ))}
+      </div>
+    )}
+  </section>
+</AdminLayout>

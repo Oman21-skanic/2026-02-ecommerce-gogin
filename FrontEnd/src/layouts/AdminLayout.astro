@@ -1,0 +1,70 @@
+---
+import AdminNavbar from "../components/layout/AdminNavbar.astro";
+import SeoHead from "../components/seo/SeoHead.astro";
+import "../styles/global.css";
+import type { Session } from "../lib/auth/session";
+
+interface Props {
+  title?: string;
+  description?: string;
+  session?: Session | null;
+}
+
+const {
+  title = "Manscoffe Admin",
+  description = "Admin dashboard Manscoffe",
+  session = null,
+} = Astro.props;
+
+const isAdmin = session?.role === "admin";
+---
+
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="generator" content={Astro.generator} />
+    <SeoHead title={title} description={description} />
+  </head>
+  <body class="admin-body text-[var(--text-primary)] antialiased">
+    <AdminNavbar session={session} />
+    <main class="admin-main">
+      {isAdmin ? (
+        <slot />
+      ) : (
+        <section class="mx-auto max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center">
+          <h1 class="text-xl font-semibold">Akses Admin Saja</h1>
+          <p class="mt-2 text-sm text-[var(--text-secondary)]">Silakan login menggunakan akun admin.</p>
+          <a class="btn btn-primary mt-4" href="/auth/login?next=/admin">Login Admin</a>
+        </section>
+      )}
+    </main>
+    <div id="toast-root" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+    <script is:inline>
+      const toastRoot = document.getElementById("toast-root");
+      const showToast = (message, type = "success") => {
+        if (!toastRoot || !message) return;
+        const toast = document.createElement("div");
+        toast.className = `toast toast--${type}`;
+        toast.textContent = message;
+        toastRoot.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add("show"));
+        setTimeout(() => {
+          toast.classList.remove("show");
+          setTimeout(() => toast.remove(), 300);
+        }, 3600);
+      };
+
+      const params = new URLSearchParams(window.location.search);
+      const message = params.get("message");
+      const error = params.get("error");
+      if (message) showToast(message, "success");
+      if (error) showToast(error, "error");
+    </script>
+  </body>
+</html>

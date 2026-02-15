@@ -1,0 +1,101 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { readSession } from "../lib/auth/session";
+
+export const prerender = false;
+
+const session = readSession(Astro.cookies);
+
+if (!session) {
+	return Astro.redirect("/auth/login?next=/reviews");
+}
+
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+---
+
+<Layout title="Tulis Review — Manscoffe" description="Berikan ulasan Anda setelah menikmati pengalaman di Manscoffe" session={session}>
+	<section class="mx-auto max-w-2xl space-y-6">
+		<div class="card p-6">
+			<h1 class="text-2xl font-bold">Tulis Review</h1>
+			<p class="mt-2 text-sm text-[var(--text-secondary)]">
+				Bagikan pengalaman Anda di Manscoffe. Review Anda akan membantu kami dan pengunjung lain.
+			</p>
+		</div>
+
+		{error && <p class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+		{message && <p class="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{message}</p>}
+
+		<form method="POST" action="/api/reviews/submit" class="card p-6 space-y-4">
+			<div>
+				<label class="block text-sm font-semibold">Rating</label>
+				<div class="mt-2 flex gap-2">
+					{[1, 2, 3, 4, 5].map((star) => (
+						<label class="rating-star-input">
+							<input type="radio" name="rating" value={star} required />
+							<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+								<path d="M12 2l2.7 5.7 6.3.9-4.6 4.5 1.1 6.3L12 16.9 6.5 19.4l1.1-6.3L3 8.6l6.3-.9L12 2z" />
+							</svg>
+						</label>
+					))}
+				</div>
+			</div>
+
+			<div>
+				<label class="block text-sm font-semibold">Komentar</label>
+				<textarea
+					name="comment"
+					rows="5"
+					class="field mt-2"
+					placeholder="Ceritakan pengalaman Anda di Manscoffe..."
+					required
+				></textarea>
+			</div>
+
+			<div class="flex gap-3">
+				<button type="submit" class="btn btn-primary">Kirim Review</button>
+				<a href="/orders" class="btn btn-ghost">Batal</a>
+			</div>
+		</form>
+	</section>
+</Layout>
+
+<style>
+	.rating-star-input {
+		cursor: pointer;
+		color: var(--border);
+		transition: color 0.2s ease;
+	}
+
+	.rating-star-input input {
+		position: absolute;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.rating-star-input input:checked ~ svg,
+	.rating-star-input:hover svg {
+		color: var(--brand-gold);
+	}
+
+	.rating-star-input input:checked ~ svg {
+		color: var(--brand-gold);
+	}
+</style>
+
+<script>
+	const stars = document.querySelectorAll(".rating-star-input");
+	stars.forEach((star, index) => {
+		star.addEventListener("click", () => {
+			stars.forEach((s, i) => {
+				const icon = s.querySelector("svg");
+				if (!icon) return;
+				if (i <= index) {
+					icon.style.color = "var(--brand-gold)";
+				} else {
+					icon.style.color = "var(--border)";
+				}
+			});
+		});
+	});
+</script>

@@ -1,0 +1,66 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { backendRequest } from "../../lib/api/backend";
+import { readSession } from "../../lib/auth/session";
+import type { Product } from "../../lib/types";
+
+const session = readSession(Astro.cookies);
+const id = Astro.params.id || "";
+const result = await backendRequest<Product>(`/api/v1/products/${id}`);
+const product = result.data || null;
+---
+
+<Layout title={product ? `${product.name} — Manscoffe` : "Produk Tidak Ditemukan"} description="Detail produk Manscoffe" session={session}>
+  {product ? (
+    <section class="product-detail-page">
+      <div class="section-shell">
+        <div class="detail-breadcrumbs reveal">
+          <a href="/products">Menu</a>
+          <span>/</span>
+          <span>{product.name}</span>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-media reveal">
+            <div class="detail-image">
+              <img src={product.thumbnail || "/images/coffee-placeholder.svg"} alt={product.name} loading="lazy" />
+            </div>
+            <div class="detail-meta">
+              {product.category && <span class="detail-chip">{product.category}</span>}
+              <span class="detail-chip">SKU {product.sku}</span>
+              <span class="detail-chip">Stock {product.stock}</span>
+            </div>
+          </div>
+          <div class="detail-info reveal">
+            <h1>{product.name}</h1>
+            <p class="detail-desc">{product.description || "Tanpa deskripsi"}</p>
+            <div class="detail-price">Rp {(product.price_cents / 100).toLocaleString("id-ID")}</div>
+            <form method="POST" action="/api/cart/add" class="detail-form">
+              <input type="hidden" name="product_id" value={product.id} />
+              <input type="hidden" name="redirect_to" value={Astro.url.pathname} />
+              <label class="detail-qty">
+                Qty
+                <input class="detail-input" type="number" min="1" name="quantity" value="1" />
+              </label>
+              <button class="btn btn-primary" type="submit">Tambah ke Keranjang</button>
+              <a class="btn btn-ghost" href="/products">Kembali</a>
+            </form>
+            <div class="detail-note">
+              <span>Freshly brewed</span>
+              <p>Disajikan hangat dengan biji pilihan Nusantara.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  ) : (
+    <section class="product-detail-page">
+      <div class="section-shell">
+        <div class="detail-empty">
+          <h1>Produk tidak ditemukan</h1>
+          <p>{result.error || "ID produk tidak valid."}</p>
+          <a class="btn btn-ghost" href="/products">Kembali ke katalog</a>
+        </div>
+      </div>
+    </section>
+  )}
+</Layout>

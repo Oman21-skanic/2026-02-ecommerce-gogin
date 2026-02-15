@@ -1,0 +1,63 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { readSession } from "../lib/auth/session";
+
+const session = readSession(Astro.cookies);
+
+const galleryItems = [
+	{
+		title: "Sesi Tamu Komunitas",
+		caption: "Ngopi bareng komunitas kreatif Bandung.",
+		image: "https://images.unsplash.com/photo-1521017432531-fbd92d768814?auto=format&fit=crop&w=1400&q=80",
+	},
+	{
+		title: "Kolaborasi Brand Lokal",
+		caption: "Kerja sama dengan roastery lokal untuk signature blend.",
+		image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1400&q=80",
+	},
+	{
+		title: "Workshop Manual Brew",
+		caption: "Belajar seduh V60 dan Aeropress bersama barista.",
+		image: "https://images.unsplash.com/photo-1453614512568-c4024d13c247?auto=format&fit=crop&w=1400&q=80",
+	},
+	{
+		title: "Acoustic Night",
+		caption: "Live music tiap Jumat dan Sabtu malam.",
+		image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1400&q=80",
+	},
+	{
+		title: "Tamu Spesial",
+		caption: "Barista guest star dari Jakarta dan Surabaya.",
+		image: "https://images.unsplash.com/photo-1481833761820-0509d3217039?auto=format&fit=crop&w=1400&q=80",
+	},
+	{
+		title: "Corporate Gathering",
+		caption: "Tempat ideal untuk meeting santai dan team bonding.",
+		image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1400&q=80",
+	},
+];
+---
+
+<Layout title="Gallery Manscoffe" description="Momen tamu, kolaborasi, dan event Manscoffe" session={session}>
+	<section class="gallery-page">
+		<div class="section-shell">
+			<div class="gallery-header reveal">
+				<h1>Gallery Manscoffe</h1>
+				<p>Potret suasana hangat, tamu spesial, dan kolaborasi yang kami rayakan.</p>
+			</div>
+
+			<div class="gallery-grid">
+				{galleryItems.map((item, index) => (
+					<article class="gallery-card reveal" style={`transition-delay:${index * 0.05}s;`}>
+						<img src={item.image} alt={item.title} loading="lazy" />
+						<div class="gallery-overlay"></div>
+						<div class="gallery-content">
+							<h2>{item.title}</h2>
+							<p>{item.caption}</p>
+						</div>
+					</article>
+				))}
+			</div>
+		</div>
+	</section>
+</Layout>

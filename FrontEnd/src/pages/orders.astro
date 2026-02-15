@@ -1,0 +1,206 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { readSession } from "../lib/auth/session";
+import { backendRequest } from "../lib/api/backend";
+import type { Order, Product } from "../lib/types";
+
+const session = readSession(Astro.cookies);
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+
+let orders: Order[] = [];
+let ordersError = "";
+let productMap: Record<string, Product> = {};
+
+if (session) {
+  const ordersResult = await backendRequest<Order[]>("/api/v1/me/orders", {
+    token: session.token,
+  });
+
+  if (ordersResult.data) {
+    orders = ordersResult.data;
+  } else {
+    ordersError = ordersResult.error || "Gagal memuat pesanan.";
+  }
+}
+
+if (orders.length > 0) {
+  const productsResult = await backendRequest<Product[]>("/api/v1/products");
+  if (productsResult.data) {
+    productMap = Object.fromEntries(
+      productsResult.data.map((product) => [product.id, product]),
+    );
+  } else if (!ordersError) {
+    ordersError = productsResult.error || "Gagal memuat produk.";
+  }
+}
+
+const needsLogin = !session;
+
+const formatTimestamp = (value: string) =>
+  new Date(value).toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const buildTrack = (status: string) => {
+  const normalized = status.toLowerCase();
+  if (normalized === "paid") {
+    return [
+      { label: "Pembayaran", status: "done" },
+      { label: "Disiapkan", status: "active" },
+      { label: "Siap Diambil", status: "todo" },
+      { label: "Selesai", status: "todo" },
+    ];
+  }
+  if (normalized === "failed") {
+    return [
+      { label: "Pembayaran", status: "blocked" },
+      { label: "Disiapkan", status: "todo" },
+      { label: "Siap Diambil", status: "todo" },
+      { label: "Selesai", status: "todo" },
+    ];
+  }
+  if (normalized === "done" || normalized === "completed") {
+    return [
+      { label: "Pembayaran", status: "done" },
+      { label: "Disiapkan", status: "done" },
+      { label: "Siap Diambil", status: "done" },
+      { label: "Selesai", status: "done" },
+    ];
+  }
+  return [
+    { label: "Pembayaran", status: "active" },
+    { label: "Disiapkan", status: "todo" },
+    { label: "Siap Diambil", status: "todo" },
+    { label: "Selesai", status: "todo" },
+  ];
+};
+
+const buildStatus = (status: string) => {
+  const normalized = status.toLowerCase();
+  if (normalized === "paid") {
+    return { label: "Sedang Disiapkan", eta: "Dalam proses" };
+  }
+  if (normalized === "failed") {
+    return { label: "Pembayaran Gagal", eta: "Butuh tindakan" };
+  }
+  if (normalized === "done" || normalized === "completed") {
+    return { label: "Selesai", eta: "Pesanan selesai" };
+  }
+  return { label: "Menunggu Pembayaran", eta: "Menunggu konfirmasi" };
+};
+
+const orderCards = orders.map((order) => {
+  const orderId = order.order_id || order.id;
+  const statusMeta = buildStatus(order.status);
+  const items = (order.items || []).map((item) => {
+    const product = productMap[item.product_id];
+    return `${product?.name || "Produk"} x${item.quantity}`;
+  });
+
+  const updates = [
+    { time: formatTimestamp(order.created_at), text: "Order dibuat" },
+  ];
+
+  if (order.status.toLowerCase() === "paid") {
+    updates.push({ time: formatTimestamp(order.created_at), text: "Pembayaran diterima" });
+  } else if (order.status.toLowerCase() === "failed") {
+    updates.push({ time: formatTimestamp(order.created_at), text: "Pembayaran gagal" });
+  } else {
+    updates.push({ time: formatTimestamp(order.created_at), text: "Menunggu pembayaran" });
+  }
+
+  return {
+    id: orderId,
+    status: statusMeta.label,
+    eta: statusMeta.eta,
+    total_cents: order.amount_cents,
+    items,
+    updates,
+    track: buildTrack(order.status),
+  };
+});
+---
+
+<Layout title="Logs Pesanan Manscoffe" description="Pantau status pesanan dan riwayat Anda" session={session}>
+  <section class="orders-page">
+    <div class="section-shell">
+      <div class="orders-header reveal">
+        <h1>Logs & Status Pesanan</h1>
+        <p>Lihat progress pesanan Anda secara real-time.</p>
+      </div>
+
+      {error && <p class="auth-alert auth-alert-error">{error}</p>}
+      {message && <p class="auth-alert auth-alert-success">{message}</p>}
+      {ordersError && <p class="auth-alert auth-alert-error">{ordersError}</p>}
+
+      <div class="order-flow-banner" data-flow-banner hidden>
+        <strong>Status Pesanan</strong>
+        <p data-flow-text>Pesanan sedang diproses.</p>
+      </div>
+
+      {needsLogin ? (
+        <article class="orders-empty reveal">
+          <p>Login dulu untuk melihat pesanan Anda.</p>
+          <a href="/auth/login?next=/orders" class="btn btn-primary">Login</a>
+        </article>
+      ) : orderCards.length === 0 ? (
+        <article class="orders-empty reveal">
+          <p>Belum ada pesanan.</p>
+          <a href="/products" class="btn btn-primary">Mulai Pesan</a>
+        </article>
+      ) : (
+        <div class="orders-list">
+          {orderCards.map((order, index) => (
+            <article class="order-card reveal" data-order-id={order.id} style={`transition-delay:${index * 0.04}s;`}>
+              <div class="order-head">
+                <div>
+                  <h2>Order #{order.id}</h2>
+                  <p>{order.items.join(" · ")}</p>
+                </div>
+                <div class="order-status">
+                  <span data-order-status>{order.status}</span>
+                  <em data-order-eta>{order.eta}</em>
+                </div>
+              </div>
+
+              <div class="order-body">
+                <div class="order-track">
+                  {order.track.map((step) => (
+                    <div class={`track-step track-${step.status}`} data-track-label={step.label}>
+                      <span></span>
+                      <p>{step.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div class="order-updates">
+                  <p class="updates-title">Trackrecord</p>
+                  <ul>
+                    {order.updates.map((update) => (
+                      <li>
+                        <span>{update.time}</span>
+                        <p>{update.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div class="order-footer">
+                <p>Total</p>
+                <strong>Rp {(order.total_cents / 100).toLocaleString("id-ID")}</strong>
+                {order.status === "Selesai" && (
+                  <a href="/reviews" class="btn btn-ghost">Tulis Review</a>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  </section>
+</Layout>

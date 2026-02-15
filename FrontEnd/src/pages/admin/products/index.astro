@@ -1,0 +1,155 @@
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { backendRequest } from "../../../lib/api/backend";
+import { readSession } from "../../../lib/auth/session";
+import type { Order, Product } from "../../../lib/types";
+
+export const prerender = false;
+
+const session = readSession(Astro.cookies);
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+const query = Astro.url.searchParams.get("q") || "";
+const categoryFilter = Astro.url.searchParams.get("category") || "";
+const sort = Astro.url.searchParams.get("sort") || "latest";
+
+const searchParams = new URLSearchParams();
+if (query) searchParams.set("q", query);
+if (sort) searchParams.set("sort", sort);
+const queryParam = searchParams.toString() ? `?${searchParams.toString()}` : "";
+const result = session
+  ? await backendRequest<Product[]>(`/api/v1/admin/products${queryParam}`, { token: session.token })
+  : { data: null, error: "Unauthorized", status: 401 };
+
+const products = result.data || [];
+const ordersResult = session
+  ? await backendRequest<Order[]>("/api/v1/admin/orders", { token: session.token })
+  : { data: null, error: null, status: 401 };
+
+const orders = ordersResult.data || [];
+const salesMap = new Map<string, number>();
+
+orders.forEach((order) => {
+  const status = order.status?.toLowerCase() || "";
+  if (status !== "paid" && status !== "done" && status !== "completed") return;
+  (order.items || []).forEach((item) => {
+    salesMap.set(item.product_id, (salesMap.get(item.product_id) || 0) + item.quantity);
+  });
+});
+
+const topSellerIds = new Set(
+  [...salesMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([id]) => id),
+);
+const categories = Array.from(
+  new Set(products.map((product) => product.category).filter((value): value is string => Boolean(value))),
+).sort();
+
+const filteredProducts = categoryFilter
+  ? products.filter((product) => (product.category || "").toLowerCase() === categoryFilter.toLowerCase())
+  : products;
+
+const totalCount = filteredProducts.length;
+const rawCount = products.length;
+---
+
+<AdminLayout title="Admin Produk Mancafe" description="Dashboard admin produk" session={session}>
+  <section class="space-y-6">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <h1 class="text-2xl font-bold">Admin Produk</h1>
+      <a class="btn btn-primary" href="/admin/products/new">+ Produk Baru</a>
+    </div>
+    <form method="GET" class="grid gap-3 md:grid-cols-[1.2fr_0.6fr_0.6fr_auto]">
+      <label class="text-sm">
+        Cari produk
+        <input class="field mt-1" name="q" placeholder="Cari nama / SKU / kategori" value={query} />
+      </label>
+      <label class="text-sm">
+        Filter kategori
+        <select class="field mt-1" name="category">
+          <option value="">Semua kategori</option>
+          {categories.map((category) => (
+            <option value={category} selected={category === categoryFilter}>{category}</option>
+          ))}
+        </select>
+      </label>
+      <label class="text-sm">
+        Sorting
+        <select class="field mt-1" name="sort">
+          <option value="latest" selected={sort === "latest"}>Terbaru</option>
+          <option value="bestseller" selected={sort === "bestseller"}>Terlaris</option>
+        </select>
+      </label>
+      <div class="flex items-end gap-2">
+        <button class="btn btn-primary" type="submit">Terapkan</button>
+        {(query || categoryFilter) && (
+          <a class="btn btn-ghost" href="/admin/products">Reset</a>
+        )}
+      </div>
+    </form>
+    <p class="text-sm text-[var(--text-secondary)]">
+      Menampilkan {totalCount} dari {rawCount} produk.
+    </p>
+    {error && <p class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+    {message && <p class="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{message}</p>}
+    {result.error && <p class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{result.error}</p>}
+
+    <div class="space-y-3">
+      {filteredProducts.length === 0 ? (
+        <article class="card p-5 text-[var(--text-secondary)]">Produk tidak ditemukan.</article>
+      ) : filteredProducts.map((product) => (
+        <article class="card p-4 admin-product-card">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center">
+              <div class="admin-product-thumb">
+                <img
+                  src={product.thumbnail || "/images/coffee-placeholder.svg"}
+                  alt={product.name}
+                  class="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <h2 class="font-semibold">{product.name}</h2>
+                  {topSellerIds.has(product.id) && (
+                    <span class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-700">
+                      Top Seller
+                    </span>
+                  )}
+                </div>
+                <p class="text-sm admin-product-meta">
+                  SKU: {product.sku} • Stock: {product.stock}
+                </p>
+                <p class="text-sm admin-product-meta">Category: {product.category || "-"}</p>
+                <p class="text-sm admin-product-price">Rp {(product.price_cents / 100).toLocaleString("id-ID")}</p>
+              </div>
+            </div>
+            <div class="admin-product-actions">
+              <a class="admin-icon-btn" href={`/admin/products/${product.id}`} aria-label="Edit produk">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </a>
+              <form method="POST" action="/api/admin/products/delete">
+                <input type="hidden" name="id" value={product.id} />
+                <button class="admin-icon-btn admin-icon-btn-danger" type="submit" aria-label="Hapus produk">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                </button>
+              </form>
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
+  </section>
+</AdminLayout>

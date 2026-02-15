@@ -1,0 +1,181 @@
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { backendRequest } from "../../../lib/api/backend";
+import { readSession } from "../../../lib/auth/session";
+import type { Product } from "../../../lib/types";
+
+export const prerender = false;
+
+const session = readSession(Astro.cookies);
+const id = Astro.params.id || "";
+const error = Astro.url.searchParams.get("error") || "";
+
+const result = session
+  ? await backendRequest<Product>(`/api/v1/products/${id}`, { token: session.token })
+  : { data: null, error: "Unauthorized", status: 401 };
+
+const product = result.data;
+---
+
+<AdminLayout title="Edit Produk — Mancafe Admin" description="Edit produk Mancafe" session={session}>
+  <section class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Edit Produk</h1>
+      <a class="btn btn-ghost" href="/admin/products">Kembali</a>
+    </div>
+
+    {(error || result.error) && <p class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error || result.error}</p>}
+
+    {product ? (
+      <div class="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <article class="card p-5">
+          <form method="POST" action="/api/admin/products/update" class="grid gap-3 md:grid-cols-2" data-preview-form>
+            <input type="hidden" name="id" value={product.id} />
+            <label class="text-sm md:col-span-2">
+              Nama Produk
+              <input class="field mt-1" name="name" value={product.name} required data-preview-input="name" />
+            </label>
+            <label class="text-sm">
+              SKU
+              <input class="field mt-1" name="sku" value={product.sku} required data-preview-input="sku" />
+            </label>
+            <label class="text-sm">
+              Category
+              <input class="field mt-1" name="category" value={product.category} data-preview-input="category" />
+            </label>
+            <label class="text-sm">
+              Harga (cents)
+              <input class="field mt-1" type="number" min="1" name="price_cents" value={product.price_cents} required data-preview-input="price" />
+            </label>
+            <label class="text-sm">
+              Stock
+              <input class="field mt-1" type="number" min="0" name="stock" value={product.stock} required data-preview-input="stock" />
+            </label>
+            <label class="text-sm md:col-span-2">
+              Deskripsi
+              <textarea class="field mt-1" name="description" rows="4" data-preview-input="description">{product.description}</textarea>
+            </label>
+            <label class="text-sm md:col-span-2">
+              Thumbnail URL
+              <input class="field mt-1" name="thumbnail" value={product.thumbnail} data-preview-input="thumbnail" />
+            </label>
+            <label class="text-sm md:col-span-2">
+              Upload Thumbnail (max 2MB)
+              <input class="field mt-1" type="file" accept="image/png,image/jpeg,image/webp" data-preview-file />
+            </label>
+            <p class="text-xs text-[var(--text-secondary)]" data-preview-status></p>
+
+            <button class="btn btn-primary md:col-span-2" type="submit">Update Produk</button>
+          </form>
+        </article>
+
+        <aside class="admin-preview-card card p-5 space-y-4">
+          <div class="admin-preview-thumb">
+            <img src={product.thumbnail || "/images/coffee-placeholder.svg"} alt="Preview produk" loading="lazy" data-preview-image />
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-[0.2em] text-[var(--text-secondary)]">Preview</p>
+            <h2 class="mt-2 text-xl font-semibold" data-preview-name>{product.name}</h2>
+            <p class="mt-1 text-sm text-[var(--text-secondary)]" data-preview-desc>{product.description || "Deskripsi produk."}</p>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span data-preview-sku>{product.sku}</span>
+            <span data-preview-category>{product.category || "Category"}</span>
+          </div>
+          <div class="text-sm text-[var(--text-secondary)]" data-preview-stock>Stock {product.stock}</div>
+          <div class="text-lg font-semibold text-[var(--brand-red)]" data-preview-price>
+            Rp {(product.price_cents / 100).toLocaleString("id-ID")}
+          </div>
+        </aside>
+      </div>
+    ) : (
+      <article class="card p-5 text-[var(--text-secondary)]">Produk tidak ditemukan.</article>
+    )}
+  </section>
+
+  <script is:inline>
+    const form = document.querySelector("[data-preview-form]");
+    if (form) {
+      const nameInput = form.querySelector("[data-preview-input='name']");
+      const skuInput = form.querySelector("[data-preview-input='sku']");
+      const categoryInput = form.querySelector("[data-preview-input='category']");
+      const priceInput = form.querySelector("[data-preview-input='price']");
+      const stockInput = form.querySelector("[data-preview-input='stock']");
+      const descInput = form.querySelector("[data-preview-input='description']");
+      const thumbInput = form.querySelector("[data-preview-input='thumbnail']");
+      const fileInput = form.querySelector("[data-preview-file]");
+      const statusEl = document.querySelector("[data-preview-status]");
+
+      const nameEl = document.querySelector("[data-preview-name]");
+      const skuEl = document.querySelector("[data-preview-sku]");
+      const categoryEl = document.querySelector("[data-preview-category]");
+      const stockEl = document.querySelector("[data-preview-stock]");
+      const priceEl = document.querySelector("[data-preview-price]");
+      const descEl = document.querySelector("[data-preview-desc]");
+      const imageEl = document.querySelector("[data-preview-image]");
+
+      const formatPrice = (value) => {
+        const cents = Number(value) || 0;
+        return `Rp ${(cents / 100).toLocaleString('id-ID')}`;
+      };
+
+      const updatePreview = () => {
+        if (nameEl) nameEl.textContent = nameInput?.value || "Nama Produk";
+        if (skuEl) skuEl.textContent = skuInput?.value || "SKU";
+        if (categoryEl) categoryEl.textContent = categoryInput?.value || "Category";
+        if (stockEl) stockEl.textContent = `Stock ${stockInput?.value || 0}`;
+        if (priceEl) priceEl.textContent = formatPrice(priceInput?.value);
+        if (descEl) descEl.textContent = descInput?.value || "Deskripsi produk.";
+        if (imageEl) {
+          const url = thumbInput?.value?.trim();
+          imageEl.src = url || "/images/coffee-placeholder.svg";
+        }
+      };
+
+      const uploadFile = async (file) => {
+        if (!statusEl) return;
+        statusEl.textContent = "Mengunggah...";
+        statusEl.className = "text-xs text-[var(--text-secondary)]";
+        const data = new FormData();
+        data.append("file", file);
+
+        try {
+          const response = await fetch("/api/admin/uploads/thumbnail", {
+            method: "POST",
+            body: data,
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload?.error || "Upload gagal");
+          }
+
+          if (thumbInput) {
+            thumbInput.value = payload.url || "";
+          }
+          if (imageEl) {
+            imageEl.src = payload.url || "/images/coffee-placeholder.svg";
+          }
+          statusEl.textContent = "Upload berhasil";
+        } catch (err) {
+          statusEl.textContent = err?.message || "Upload gagal";
+          statusEl.className = "text-xs text-[var(--text-secondary)]";
+        }
+      };
+
+      if (fileInput) {
+        fileInput.addEventListener("change", async (event) => {
+          const target = event.target;
+          const file = target?.files?.[0];
+          if (!file) return;
+          if (imageEl) {
+            imageEl.src = URL.createObjectURL(file);
+          }
+          await uploadFile(file);
+        });
+      }
+
+      form.addEventListener("input", updatePreview);
+      updatePreview();
+    }
+  </script>
+</AdminLayout>

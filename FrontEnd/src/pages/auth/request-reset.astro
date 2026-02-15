@@ -1,0 +1,32 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { readSession } from "../../lib/auth/session";
+
+const session = readSession(Astro.cookies);
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+---
+
+<Layout title="Reset Password Mancafe" description="Request reset password Mancafe" session={session}>
+  <section class="mx-auto max-w-lg card p-6">
+    <div class="flex items-center gap-3">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="text-[var(--brand-red)]">
+        <path d="M4 10h16" />
+        <path d="M4 14h16" />
+        <path d="M8 6c0 2 2 2 2 4" />
+      </svg>
+      <h1 class="text-2xl font-bold">Request Reset Password</h1>
+    </div>
+    <p class="mt-2 text-sm text-[var(--text-secondary)]">Kami kirimkan link reset ke email Anda.</p>
+
+    {error && <p class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+    {message && <p class="mt-4 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</p>}
+    <form method="POST" action="/api/auth/request-reset" class="mt-5 space-y-3">
+      <label class="block text-sm">
+        Email
+        <input class="field mt-1" type="email" name="email" required />
+      </label>
+      <button class="btn btn-primary w-full" type="submit">Kirim Link Reset</button>
+    </form>
+  </section>
+</Layout>

@@ -1,0 +1,151 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { readSession } from "../lib/auth/session";
+import { backendRequest } from "../lib/api/backend";
+import type { Cart, Product } from "../lib/types";
+
+const session = readSession(Astro.cookies);
+const error = Astro.url.searchParams.get("error") || "";
+const message = Astro.url.searchParams.get("message") || "";
+
+let cart: Cart | null = null;
+let cartError = "";
+let productMap: Record<string, Product> = {};
+
+if (session) {
+  const cartResult = await backendRequest<Cart>("/api/v1/me/cart", {
+    token: session.token,
+  });
+
+  if (cartResult.data) {
+    cart = cartResult.data;
+
+    if (cart.items.length > 0) {
+      const productsResult = await backendRequest<Product[]>("/api/v1/products");
+      if (productsResult.data) {
+        productMap = Object.fromEntries(
+          productsResult.data.map((product) => [product.id, product]),
+        );
+      } else {
+        cartError = productsResult.error || "Gagal memuat produk.";
+      }
+    }
+  } else {
+    cartError = cartResult.error || "Gagal memuat keranjang.";
+  }
+}
+
+const cartItems = cart?.items || [];
+const needsLogin = !session;
+
+const orderItems = cartItems
+  .map((item) => {
+    const product = productMap[item.product_id];
+    if (!product) {
+      return {
+        name: "Produk tidak tersedia",
+        qty: item.quantity,
+        price_cents: 0,
+      };
+    }
+    return {
+      name: product.name,
+      qty: item.quantity,
+      price_cents: product.price_cents,
+    };
+  })
+  .filter((item) => item.qty > 0);
+
+const subtotal = orderItems.reduce((acc, item) => acc + item.qty * item.price_cents, 0);
+const total = subtotal;
+---
+
+<Layout title="Checkout Manscoffe" description="Checkout pesanan Manscoffe" session={session}>
+  <section class="checkout-page">
+    <div class="section-shell">
+      <div class="checkout-header reveal">
+        <h1>Checkout</h1>
+        <p>Pilih metode pembayaran favorit Anda.</p>
+      </div>
+
+      {error && <p class="auth-alert auth-alert-error">{error}</p>}
+      {message && <p class="auth-alert auth-alert-success">{message}</p>}
+      {cartError && <p class="auth-alert auth-alert-error">{cartError}</p>}
+      {needsLogin ? (
+        <article class="cart-empty reveal">
+          <p>Login dulu untuk lanjut ke checkout.</p>
+          <a href="/auth/login?next=/checkout" class="btn btn-primary">Login</a>
+        </article>
+      ) : cartItems.length === 0 ? (
+        <article class="cart-empty reveal">
+          <p>Keranjang masih kosong.</p>
+          <a href="/products" class="btn btn-primary">Mulai Belanja</a>
+        </article>
+      ) : (
+        <div class="checkout-grid">
+          <form class="checkout-panel reveal" method="POST" action="/api/checkout">
+            <h2>Metode Pembayaran</h2>
+            <div class="payment-grid">
+              <label class="payment-card">
+                <input type="radio" name="payment_method" value="gopay" checked />
+                <div>
+                  <span>GoPay</span>
+                  <p>Bayar cepat via aplikasi GoPay.</p>
+                </div>
+              </label>
+              <label class="payment-card">
+                <input type="radio" name="payment_method" value="shopeepay" />
+                <div>
+                  <span>ShopeePay</span>
+                  <p>Bayar via ShopeePay, praktis dan aman.</p>
+                </div>
+              </label>
+              <label class="payment-card">
+                <input type="radio" name="payment_method" value="qris" />
+                <div>
+                  <span>QRIS</span>
+                  <p>Scan QRIS untuk pembayaran instan.</p>
+                </div>
+              </label>
+              <label class="payment-card">
+                <input type="radio" name="payment_method" value="bank_transfer" />
+                <div>
+                  <span>Transfer Bank</span>
+                  <p>Transfer manual via virtual account.</p>
+                </div>
+              </label>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Bayar Sekarang</button>
+          </form>
+
+          <aside class="checkout-summary reveal">
+            <h2>Ringkasan</h2>
+            <div class="summary-items">
+              {orderItems.map((item) => (
+                <div class="summary-item">
+                  <div>
+                    <span>{item.name}</span>
+                    <em>Qty {item.qty}</em>
+                  </div>
+                  <strong>Rp {((item.price_cents * item.qty) / 100).toLocaleString("id-ID")}</strong>
+                </div>
+              ))}
+            </div>
+            <div class="summary-totals">
+              <div>
+                <span>Subtotal</span>
+                <strong>Rp {(subtotal / 100).toLocaleString("id-ID")}</strong>
+              </div>
+              <div class="summary-total">
+                <span>Total</span>
+                <strong>Rp {(total / 100).toLocaleString("id-ID")}</strong>
+              </div>
+            </div>
+            <a class="btn btn-ghost" href="/cart">Kembali ke Keranjang</a>
+          </aside>
+        </div>
+      )}
+    </div>
+  </section>
+</Layout>

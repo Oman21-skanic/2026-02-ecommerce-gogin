@@ -1,0 +1,32 @@
+---
+import type { Session } from "../../lib/auth/session";
+
+interface Props {
+  session?: Session | null;
+}
+
+const { session = null } = Astro.props;
+---
+
+<header class="admin-nav">
+  <div class="admin-nav-inner">
+    <a href="/admin" class="admin-brand" aria-label="Manscoffe Admin">
+      <span class="admin-brand-dot"></span>
+      Manscoffe Admin
+    </a>
+
+    <nav class="admin-links" aria-label="Admin">
+      <a class="admin-link" href="/admin">Dashboard</a>
+      <a class="admin-link" href="/admin/products">Produk</a>
+      <a class="admin-link" href="/admin/orders">Pesanan</a>
+    </nav>
+
+    <div class="admin-actions">
+      {session?.email && <span class="admin-user">{session.email}</span>}
+      <a class="btn btn-ghost" href="/">Lihat Website</a>
+      <form method="POST" action="/api/auth/logout">
+        <button type="submit" class="btn btn-primary">Keluar</button>
+      </form>
+    </div>
+  </div>
+</header>
